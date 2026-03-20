@@ -23,8 +23,9 @@ export async function signUserOp(
 
   const userOpHash = await entryPoint.getUserOpHash(userOp);
 
+  // --- FIX: Passa l'hash come 'raw' per firmare i byte corretti ---
   const signature = await ownerAccount.signMessage({
-    message: userOpHash,
+    message: { raw: userOpHash as Hex },
   });
 
   return {

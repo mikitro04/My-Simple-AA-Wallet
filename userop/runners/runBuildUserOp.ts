@@ -1,33 +1,46 @@
-import { ethers } from "ethers";
+import "dotenv/config";
 import { buildUserOp } from "../BuildUserOp";
-import { Hex, PackedUserOperation } from "viem";
+import { ethers } from "ethers";
+import * as fs from "fs";
+import * as path from "path";
 
-/**
- * @notice To run this script you must deploy ENTRY_POINT, ACCOUNT AND COUNTER contracts on anvil(local) chain to simulate and verify calldata in logs
- */
 async function main() {
+  const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
+  const ACCOUNT = "0x71C95911E9a5D330f4D621842EC243EE1343292e";
+  const COUNTER = "0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F";
+
   const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
 
-  const ENTRY_POINT = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // deployed EntryPoint
-  const ACCOUNT = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // MinimalAccount address
-  const COUNTER = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"; // Counter address
-
-  // Encode Counter.increment()
-  const counterInterface = new ethers.Interface(["function increment()"]);
-
-  const counterCallData = counterInterface.encodeFunctionData(
-    "increment",
-  ) as `0x${string}`;
-
-  const userOp: PackedUserOperation = await buildUserOp({
+  const baseOp: any = await buildUserOp({
     provider,
     entryPoint: ENTRY_POINT,
     sender: ACCOUNT,
     target: COUNTER,
-    data: counterCallData,
+    data: "0xd09de08a",
   });
 
-  console.log("UserOp build:", userOp);
+  // Calcolo del nonce dinamico (fondamentale per non avere AA25)
+  const currentNonce = "0x" + BigInt(baseOp.nonce).toString(16);
+
+  // Creiamo l'oggetto v0.7 perfetto
+  const packedUserOp = {
+    sender: ACCOUNT,
+    nonce: currentNonce,
+    initCode: baseOp.initCode || "0x",
+    callData: baseOp.callData,
+    accountGasLimits: "0x000000000000000000000000000186a0000000000000000000000000000493e0",
+    preVerificationGas: "0xc350",
+    gasFees: "0x0000000000000000000000003b9aca000000000000000000000000012a05f200",
+    paymasterAndData: baseOp.paymasterAndData || "0x",
+    signature: "0x"
+  };
+
+  console.log("PackedUserOp built:", packedUserOp);
+
+  // Salviamo i dati in un file locale per il passaggio successivo
+  const filePath = path.join(__dirname, "../../userOp.json");
+  fs.writeFileSync(filePath, JSON.stringify(packedUserOp, null, 2));
+  console.log("Dati salvati in userOp.json");
 }
 
 main().catch(console.error);

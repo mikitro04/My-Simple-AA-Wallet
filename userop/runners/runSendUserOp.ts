@@ -1,35 +1,34 @@
-import { buildUserOp } from "../BuildUserOp";
-import { signUserOp } from "../SignUserOp";
-import { sendUserOp } from "../SendUserOp";
 import { ethers } from "ethers";
-import { Hex, PackedUserOperation } from "viem";
+import * as fs from "fs";
+import * as path from "path";
 
 async function main() {
-  const ENTRY_POINT = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // deployed EntryPoint
-  const ACCOUNT = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // MinimalAccount address
-  const COUNTER = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"; // Counter address
+  const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
+  // Ci connettiamo diretti al Bundler
+  const bundlerProvider = new ethers.JsonRpcProvider("http://localhost:3000/rpc");
 
-  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+  // Leggiamo la UserOp firmata
+  const filePath = path.join(__dirname, "../../userOp.json");
+  if (!fs.existsSync(filePath)) throw new Error("userOp.json non trovato! Esegui prima sign:userop");
+  const userOp = JSON.parse(fs.readFileSync(filePath, "utf-8"));
 
-  const packedUserOp: PackedUserOperation = await buildUserOp({
-    provider,
-    entryPoint: ENTRY_POINT,
-    sender: ACCOUNT,
-    target: COUNTER,
-    data: "0xd09de08a", // increment(),
-  });
-  console.log("PackedUserOp build:", packedUserOp);
+  // --- IL CAVALLO DI TROIA ---
+  // Aggiungiamo i vecchi campi v0.6 per superare i controlli del Bundler locale
+  const rpcPayload = {
+    ...userOp,
+    callGasLimit: "0x493e0",         
+    verificationGasLimit: "0x186a0", 
+    maxFeePerGas: "0x12a05f200",     
+    maxPriorityFeePerGas: "0x3b9aca00" 
+  };
 
-  const signedUserOp: PackedUserOperation = await signUserOp(
-    packedUserOp,
-    ENTRY_POINT,
-    provider,
-  );
-
-  console.log("UserOp signed:", signedUserOp);
-
-  const userOpHash: Hex = await sendUserOp(signedUserOp, ENTRY_POINT);
-  console.log("UserOp Hash:", userOpHash);
+  console.log("Sending Hybrid RPC Payload to Bundler...");
+  try {
+    const txHash = await bundlerProvider.send("eth_sendUserOperation", [rpcPayload, ENTRY_POINT]);
+    console.log("SUCCESS! Transaction Hash:", txHash);
+  } catch (error: any) {
+    console.error("Bundler rejected the UserOp:", error.info?.error?.message || error.message);
+  }
 }
 
 main().catch(console.error);

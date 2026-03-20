@@ -1,41 +1,31 @@
-import { buildUserOp } from "../BuildUserOp";
-import { signUserOp } from "../SignUserOp";
-import { PackedUserOperation } from "viem";
+import "dotenv/config";
 import { ethers } from "ethers";
+import { EntryPointABI } from "../../utils/ABI/EntryPointABI";
+import * as fs from "fs";
+import * as path from "path";
 
-/**
- * @notice To run this script you must deploy ENTRY_POINT, ACCOUNT AND COUNTER contracts on anvil(local) chain to simulate and verify calldata in logs
- */
 async function main() {
-  const ENTRY_POINT = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // deployed EntryPoint
-  const ACCOUNT = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // MinimalAccount address
-  const COUNTER = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"; // Counter address
-
-  // Encode Counter.increment()
-  const counterInterface = new ethers.Interface(["function increment()"]);
-
-  const counterCallData = counterInterface.encodeFunctionData(
-    "increment",
-  ) as `0x${string}`;
-
+  const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
   const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+  const wallet = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY!, provider);
 
-  const packedUserOp: PackedUserOperation = await buildUserOp({
-    provider,
-    entryPoint: ENTRY_POINT,
-    sender: ACCOUNT,
-    target: COUNTER,
-    data: counterCallData,
-  });
-  console.log("PackedUserOp build", packedUserOp);
+  // Leggiamo i dati creati dal comando precedente
+  const filePath = path.join(__dirname, "../../userOp.json");
+  if (!fs.existsSync(filePath)) throw new Error("userOp.json non trovato! Esegui prima build:userop");
+  const userOp = JSON.parse(fs.readFileSync(filePath, "utf-8"));
 
-  const signedUserOp: PackedUserOperation = await signUserOp(
-    packedUserOp,
-    ENTRY_POINT,
-    provider,
-  );
+  // Calcoliamo l'hash usando l'ABI esatta per evitare errori
+  const entryPointContract = new ethers.Contract(ENTRY_POINT, EntryPointABI, provider);
+  const userOpHash = await entryPointContract.getUserOpHash(userOp);
+  console.log("On-chain UserOpHash:", userOpHash);
 
-  console.log("UserOp signed:", signedUserOp);
+  // Firmiamo
+  userOp.signature = await wallet.signMessage(ethers.getBytes(userOpHash));
+  console.log("UserOp signed successfully");
+
+  // Salviamo l'oggetto aggiornato con la firma
+  fs.writeFileSync(filePath, JSON.stringify(userOp, null, 2));
+  console.log("UserOp firmata salvata in userOp.json");
 }
 
 main().catch(console.error);

@@ -1,35 +1,66 @@
+import "dotenv/config";
 import { buildUserOp } from "../userop/BuildUserOp";
-import { signUserOp } from "../userop/SignUserOp";
-import { sendUserOp } from "../userop/SendUserOp";
 import { ethers } from "ethers";
-import { Hex, PackedUserOperation } from "viem";
+import { EntryPointABI } from "../utils/ABI/EntryPointABI";
 
 async function main() {
-  const ENTRY_POINT = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // deployed EntryPoint
-  const ACCOUNT = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // MinimalAccount address
-  const COUNTER = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"; // Counter address
+  const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
+  const ACCOUNT = "0x71C95911E9a5D330f4D621842EC243EE1343292e";
+  const COUNTER = "0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F";
 
   const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+  const bundlerProvider = new ethers.JsonRpcProvider("http://localhost:3000/rpc");
+  
+  const wallet = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY!, provider);
 
-  const packedUserOp: PackedUserOperation = await buildUserOp({
+  const baseOp: any = await buildUserOp({
     provider,
     entryPoint: ENTRY_POINT,
     sender: ACCOUNT,
     target: COUNTER,
-    data: "0xd09de08a", // increment(),
+    data: "0xd09de08a",
   });
-  console.log("PackedUserOp build:", packedUserOp);
 
-  const signedUserOp: PackedUserOperation = await signUserOp(
-    packedUserOp,
-    ENTRY_POINT,
-    provider,
-  );
+  // --- FIX: Calcoliamo il nonce in modo DINAMICO leggendolo dalla chain! ---
+  // Trasformiamo il BigInt in una stringa esadecimale (es. 1n diventa "0x1")
+  const currentNonce = "0x" + BigInt(baseOp.nonce).toString(16);
+  console.log("Current Nonce from blockchain:", currentNonce);
 
-  console.log("UserOp signed:", signedUserOp);
+  // Oggetto base in formato v0.7
+  const packedUserOp = {
+    sender: ACCOUNT,
+    nonce: currentNonce, // Usiamo il nonce dinamico qui!
+    initCode: baseOp.initCode || "0x",
+    callData: baseOp.callData,
+    accountGasLimits: "0x000000000000000000000000000186a0000000000000000000000000000493e0",
+    preVerificationGas: "0xc350",
+    gasFees: "0x0000000000000000000000003b9aca000000000000000000000000012a05f200",
+    paymasterAndData: baseOp.paymasterAndData || "0x",
+    signature: "0x"
+  };
 
-  const userOpHash: Hex = await sendUserOp(signedUserOp, ENTRY_POINT);
-  console.log("UserOp Hash:", userOpHash);
+  const entryPointContract = new ethers.Contract(ENTRY_POINT, EntryPointABI, provider);
+  
+  const userOpHash = await entryPointContract.getUserOpHash(packedUserOp);
+  packedUserOp.signature = await wallet.signMessage(ethers.getBytes(userOpHash));
+  console.log("UserOp signed successfully");
+
+  // --- IL CAVALLO DI TROIA ---
+  const rpcPayload = {
+    ...packedUserOp,
+    callGasLimit: "0x493e0",         
+    verificationGasLimit: "0x186a0", 
+    maxFeePerGas: "0x12a05f200",     
+    maxPriorityFeePerGas: "0x3b9aca00" 
+  };
+
+  console.log("Sending Hybrid RPC Payload to Bundler...");
+  try {
+    const txHash = await bundlerProvider.send("eth_sendUserOperation", [rpcPayload, ENTRY_POINT]);
+    console.log("SUCCESS! Transaction Hash:", txHash);
+  } catch (error: any) {
+    console.error("Bundler rejected the UserOp:", error.info?.error?.message || error.message);
+  }
 }
 
 main().catch(console.error);
