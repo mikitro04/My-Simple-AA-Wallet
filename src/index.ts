@@ -21,15 +21,15 @@ async function main() {
     data: "0xd09de08a",
   });
 
-  // --- FIX: Calcoliamo il nonce in modo DINAMICO leggendolo dalla chain! ---
-  // Trasformiamo il BigInt in una stringa esadecimale (es. 1n diventa "0x1")
+  // --- FIX: Calcoliamo il nonce in modo DINAMICO leggendolo dalla chain ---
+  // Trasformiamo il BigInt in una stringa esadecimale
   const currentNonce = "0x" + BigInt(baseOp.nonce).toString(16);
   console.log("Current Nonce from blockchain:", currentNonce);
 
   // Oggetto base in formato v0.7
   const packedUserOp = {
     sender: ACCOUNT,
-    nonce: currentNonce, // Usiamo il nonce dinamico qui!
+    nonce: currentNonce, // Usiamo il nonce dinamico
     initCode: baseOp.initCode || "0x",
     callData: baseOp.callData,
     accountGasLimits: "0x000000000000000000000000000186a0000000000000000000000000000493e0",
@@ -45,7 +45,6 @@ async function main() {
   packedUserOp.signature = await wallet.signMessage(ethers.getBytes(userOpHash));
   console.log("UserOp signed successfully");
 
-  // --- IL CAVALLO DI TROIA ---
   const rpcPayload = {
     ...packedUserOp,
     callGasLimit: "0x493e0",         

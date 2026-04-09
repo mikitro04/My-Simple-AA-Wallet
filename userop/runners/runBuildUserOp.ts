@@ -22,7 +22,7 @@ async function main() {
   // Calcolo del nonce dinamico (fondamentale per non avere AA25)
   const currentNonce = "0x" + BigInt(baseOp.nonce).toString(16);
 
-  // Creiamo l'oggetto v0.7 perfetto
+  // Creiamo l'oggetto v0.7
   const packedUserOp = {
     sender: ACCOUNT,
     nonce: currentNonce,

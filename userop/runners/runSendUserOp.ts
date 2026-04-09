@@ -12,7 +12,6 @@ async function main() {
   if (!fs.existsSync(filePath)) throw new Error("userOp.json non trovato! Esegui prima sign:userop");
   const userOp = JSON.parse(fs.readFileSync(filePath, "utf-8"));
 
-  // --- IL CAVALLO DI TROIA ---
   // Aggiungiamo i vecchi campi v0.6 per superare i controlli del Bundler locale
   const rpcPayload = {
     ...userOp,
