@@ -43,3 +43,14 @@ contract DeployEntryPoint is Script {
         return entryPoint;
     }
 }
+
+import {SimplePaymaster} from "src/Paymaster/SimplePaymaster.sol";
+
+contract DeployPaymaster is Script {
+    function run() external returns (SimplePaymaster) {
+        vm.startBroadcast();
+        SimplePaymaster paymaster = new SimplePaymaster(0x8464135c8F25Da09e49BC8782676a84730C318bC);
+        vm.stopBroadcast();
+        return paymaster;
+    }
+}
