@@ -7,8 +7,9 @@ Everything runs on your machine:
 - Build a `UserOperation`
 - Sign it off-chain
 - Send it to a local bundler
-- Validate and execute it on-chain(anvil)
+- Validate and execute it on-chain (anvil)
 - Observe real state changes
+- **Sponsor transactions with a Paymaster**
 
 No testnets. No third-party relayers. Pure local infra.
 
@@ -24,6 +25,7 @@ This project implements a minimal smart account with the following properties:
 - Signatures are verified in `validateUserOp`
 - Valid operations are executed via `execute(...)`
 - Ownership can be transferred to another EOA
+- A **Paymaster** is available to sponsor gas fees for UserOperations.
 
 This mirrors how real production AA wallets work, without abstractions or SDKs.
 
@@ -46,6 +48,7 @@ Bundler (local)
    ▼
 EntryPoint
    │
+   ├─ validatePaymasterUserOp (Paymaster)
    ├─ validateUserOp (Smart Account)
    └─ execute (Smart Account)
          │
@@ -72,8 +75,13 @@ EntryPoint
 
 ### 3. Counter (Target Contract)
 
-- Simple contract with `increment()`
+- Simple contract with `increment()` (or `getNumber()`/`setNumber()`)
 - Used to prove execution and state change
+
+### 4. Simple Paymaster
+
+- A custom Paymaster that approves all `UserOperation`s
+- Sponsors transactions using the stake deposited in the EntryPoint
 
 ---
 
@@ -86,8 +94,9 @@ This project runs **fully locally** using Anvil, Foundry, and a local ERC-4337 b
 ### 1️⃣ Clone the repository
 
 ```bash
-git clone https://github.com/0xEunum/Simple-AA-Wallet
-cd Simple-AA-Wallet
+git clone https://github.com/mikitro04/My-Simple-AA-Wallet
+cd My-Simple-AA-Wallet
+git submodule update --init --recursive
 ```
 
 ---
@@ -104,40 +113,42 @@ Install bundler dependencies:
 
 ```bash
 cd infra/bundler
-yarn && yarn preprocess
+yarn install
+yarn preprocess
 ```
 
 ---
 
 ### 3️⃣ Start Anvil
 
-Run Anvil from root.
+Run Anvil from root. Note that we are using chain ID `1337` to match the local bundler's default configuration.
 
 ```bash
 anvil \
   --disable-code-size-limit \
-  --chain-id 8546
+  --chain-id 1337
 ```
 
 ---
 
 ### 4️⃣ Deploy contracts (Foundry)
 
-Use Anvil Account-1 for all deployments.
-
 Deployment order **matters**:
 
 1. EntryPoint
 2. Smart Account (MinimalAccount)
 3. Counter
+4. Paymaster
 
 ---
 
 #### 4.1 Deploy EntryPoint
 
+Use Anvil Account-1 (`0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d`).
+
 ```bash
 forge script script/Deploy.s.sol:DeployEntryPoint \
-  --private-key <PRIVATE_KEY> \
+  --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
   --rpc-url anvil \
   --broadcast
 ```
@@ -150,10 +161,10 @@ Pass the deployed EntryPoint address to the constructor.
 
 ```bash
 forge create src/SmartAccount/MinimalAccount.sol:MinimalAccount \
-  --private-key <PRIVATE_KEY> \
+  --broadcast \
+  --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
   --rpc-url anvil \
-  --constructor-args <ENTRY_POINT_ADDRESS> \
-  --broadcast
+  --constructor-args <ENTRY_POINT_ADDRESS>
 ```
 
 The deployer becomes the **owner** of the smart account.
@@ -164,8 +175,21 @@ The deployer becomes the **owner** of the smart account.
 
 ```bash
 forge script script/Deploy.s.sol:DeployCounter \
-  --private-key <PRIVATE_KEY> \
+  --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
   --rpc-url anvil \
+  --broadcast
+```
+
+---
+
+#### 4.4 Deploy Paymaster
+
+For the Paymaster, we use Anvil Account-0 (`0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`).
+
+```bash
+forge script script/Deploy.s.sol:DeployPaymaster \
+  --rpc-url anvil \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
   --broadcast
 ```
 
@@ -176,54 +200,64 @@ forge script script/Deploy.s.sol:DeployCounter \
 Cross-check deployed contract addresses and update them in your `src/index.ts` and `userop/runners`.
 
 ```ts
-const ENTRY_POINT = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-const ACCOUNT = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
-const COUNTER = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0";
+const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
+const ACCOUNT = "0x71C95911E9a5D330f4D621842EC243EE1343292e";
+const COUNTER = "0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F";
+const PAYMASTER = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 ```
 
 ---
 
 ### 6️⃣ Fund the Smart Account
 
-The smart account **must hold ETH** to pre-fund the EntryPoint.
+The smart account **must hold ETH** to pre-fund the EntryPoint (unless the Paymaster covers the gas).
 
 ```bash
 cast send <SMART_ACCOUNT_ADDRESS> \
   --value 1ether \
-  --private-key <PRIVATE_KEY> \
-  --rpc-url anvil
-```
-
-Using keystore accounts:
-
-```bash
-cast send <SMART_ACCOUNT_ADDRESS> \
-  --value 1ether \
-  --account <ACCOUNT_NAME> \
+  --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
   --rpc-url anvil
 ```
 
 ---
 
-### 7️⃣ Environment variables
+### 7️⃣ Fund the Paymaster & Add Stake
+
+To sponsor transactions, the Paymaster needs funds and stake deposited in the EntryPoint.
+
+**Deposit 1 ETH into the Paymaster:**
+```bash
+cast send <PAYMASTER_ADDRESS> "deposit()" \
+  --value 1ether \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+```
+
+**Add Stake (0.1 ETH) to the Paymaster:**
+```bash
+cast send <PAYMASTER_ADDRESS> "addStake(uint32)" 86400 \
+  --value 0.1ether \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --rpc-url http://127.0.0.1:8545
+```
+
+---
+
+### 8️⃣ Environment variables
 
 Create a `.env` file in the project root:
 
 ```env
-OWNER_PRIVATE_KEY=<ANVIL_ACCOUNT_1_PRIVATE_KEY>
+OWNER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ```
 
 This key is used **off-chain** to sign `PackedUserOperation`s.
 
 ---
 
-### 8️⃣ Start the local bundler
+### 9️⃣ Start the local bundler
 
-The bundler is included as a submodule under:
-
-```
-infra/bundler
-```
+The bundler is included as a submodule under `infra/bundler`.
 
 Start the bundler:
 
@@ -235,122 +269,50 @@ yarn run bundler \
   --entryPoint <ENTRY_POINT_ADDRESS>
 ```
 
-Refer to `infra/bundler/README.md` for advanced configuration and flags.
+> **Note**: In our setup, the EntryPoint override in the bundler codebase has been disabled to ensure it uses our deployed EntryPoint on chain ID 1337.
 
 ---
 
-### 9️⃣ Run the UserOperation flow
+### 🔟 Run the UserOperation flow
 
-#### ▶ Full end-to-end flow
+From the project root, you can now run the Account Abstraction flow. You can choose whether to pay for the gas with the Smart Account itself, or sponsor the transaction using the Paymaster.
 
-From the project root:
-
+#### Option A: Pay with Smart Account
 ```bash
 npm run start
 ```
 
+#### Option B: Sponsor with Paymaster
+```bash
+npm run start -- --paymaster
+```
+
 This runs `src/index.ts` and performs the complete Account Abstraction flow:
 
-1. Builds a `PackedUserOperation`
+1. Builds a `PackedUserOperation` (including `paymasterAndData` if `--paymaster` is used)
 2. Computes `userOpHash` via `EntryPoint.getUserOpHash`
-3. Signs the hash using the **smart account owner’s private key** (`OWNER_PRIVATE_KEY` from `.env`)
-4. Converts `PackedUserOperation → RpcUserOperation`
+3. Signs the hash using the **smart account owner’s private key**
+4. Converts `PackedUserOperation → RpcUserOperation` (unpacking Paymaster fields for v0.7 compatibility)
 5. Sends it to the **local bundler** via `eth_sendUserOperation`
 6. Bundler calls `EntryPoint.handleOps`
-7. Smart Account validates the signature
+7. Smart Account (and optionally Paymaster) validates the signature and operation
 8. Smart Account executes the call
 9. `Counter.increment()` is executed and state is updated
-
-`npm run start` and `npm start` are equivalent.
-
----
-
-#### 🧪 Run steps individually (debug-friendly)
-
-Each step can be executed in isolation for debugging and learning.
-
-##### 1️⃣ Build UserOperation only
-
-```bash
-npm run build:userop
-```
-
-Runs:
-
-```
-userop/runners/runBuildUserOp.ts
-```
-
-What it does:
-
-- Fetches nonce from EntryPoint
-- Encodes `execute(target, value, calldata)`
-- Builds a `PackedUserOperation`
-- Logs the built UserOp (no signature)
-
----
-
-##### 2️⃣ Build + Sign UserOperation
-
-```bash
-npm run sign:userop
-```
-
-Runs:
-
-```
-userop/runners/runSignUserOp.ts
-```
-
-What it does:
-
-- Builds the `PackedUserOperation`
-- Computes `userOpHash`
-- Signs it using `OWNER_PRIVATE_KEY`
-- Attaches the signature
-- Logs the **signed UserOperation**
-
----
-
-##### 3️⃣ Build + Sign + Send UserOperation
-
-```bash
-npm run send:userop
-```
-
-What it does:
-
-- Builds the UserOperation
-- Signs it
-- Converts it to `RpcUserOperation`
-- Sends it to the local bundler
-
-This command performs the same flow as `npm run start`, but exists as a dedicated script for clarity.
-
----
-
-📝 Notes:
-
-- All scripts assume the Smart Account is **already deployed**
-- `initCode` is intentionally empty
-- Gas values are static and tuned for local execution
-- No paymaster is used
-
-This setup mirrors how real AA clients and SDKs orchestrate UserOperations, without hiding any steps.
 
 ---
 
 ## ✅ Verifying Execution
 
-After a successful run:
+After a successful run, check the Counter value:
 
-- The transaction is included by the bundler
-- `handleOps` executes without revert
-- `Counter.count()` increases by `+1`
+```bash
+cast call <COUNTER_ADDRESS> "getNumber()(uint256)" --rpc-url anvil
+```
 
-This confirms:
+The output should show the incremented number, confirming that:
 
 - Signature validation worked
+- Paymaster sponsorship succeeded (if enabled)
 - Execution path is correct
 - State was modified on-chain
 
@@ -363,7 +325,7 @@ infra/
   bundler/                     # eth-infinitism/bundler (local ERC-4337 bundler)
 
 script/
-  Deploy.s.sol                 # Deploy EntryPoint, Counter
+  Deploy.s.sol                 # Deploy EntryPoint, Counter, Paymaster
 
 src/
   index.ts                     # Orchestrates full AA flow (build → sign → send)
@@ -374,8 +336,11 @@ src/
   Target/
     Counter.sol                # Target contract to verify execution
 
+  Paymaster/
+    SimplePaymaster.sol        # Paymaster contract to sponsor transactions
+
 userop/
-  BuildUserOp.ts               # Constructs PackedUserOperation (nonce, calldata, gas)
+  BuildUserOp.ts               # Constructs PackedUserOperation (nonce, calldata, gas, paymaster)
   SignUserOp.ts                # Computes userOpHash and signs it with owner key
   SendUserOp.ts                # Sends UserOp to bundler via eth_sendUserOperation
 
@@ -387,14 +352,7 @@ userop/
 utils/
   ABI/
     EntryPointABI.ts           # ABI for EntryPoint interactions (hashing, nonce)
-
   UnPackUserOperation.ts       # Converts PackedUserOp → RPC UserOp format
-
-.gitignore
-.gitmodules                    # Bundler repo as submodule
-.foundry.toml                  # Foundry configuration
-package.json                   # Node scripts + deps
-... other config files
 ```
 
 ---
@@ -403,11 +361,11 @@ package.json                   # Node scripts + deps
 
 | Category            | Tools                                                             |
 | ------------------- | ----------------------------------------------------------------- |
-| **AA Spec**         | ERC-4337 (v0.7), PackedUserOperation, EntryPoint                  |
+| **AA Spec**         | ERC-4337 (v0.7), PackedUserOperation, EntryPoint, Paymaster       |
 | **Smart Contracts** | Solidity ^0.8.24, Foundry, OpenZeppelin (ECDSA, Ownable)          |
 | **Bundler**         | eth-infinitism/bundler (local, `--unsafe` Anvil mode)             |
 | **Off-chain**       | TypeScript, viem@2.44.4 (RPC + signing), ethers v6 (ABI encoding) |
-| **Dev Tools**       | Anvil (chainId 8546), Forge, Cast                                 |
+| **Dev Tools**       | Anvil (chainId 1337), Forge, Cast                                 |
 | **Core Libs**       | `@account-abstraction/contracts`, `@openzeppelin/contracts`       |
 
 **Design goal:** no SDKs, no wallet frameworks, only raw ERC-4337 primitives.
