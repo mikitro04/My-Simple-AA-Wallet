@@ -71,6 +71,30 @@ contract MinimalAccount is IAccount, Ownable {
         require(success, MinimalAccount__CallFailed(data));
     }
 
+	/**
+	 * @notice Esegue un batch di transazioni in un'unica operazione atomica.
+	 * @dev Cicla attraverso gli array forniti ed esegue chiamate a basso livello. 
+	 *      Se una qualsiasi delle chiamate fallisce, l'intera UserOperation va in revert.
+	 * @param _targets Array degli indirizzi di destinazione (Target) per ogni chiamata.
+	 * @param _values Array dei valori in Wei (ETH) da inviare insieme a ciascuna chiamata.
+	 * @param _calldatas Array contenente i dati delle funzioni codificate da eseguire sui Target.
+	 */
+	function executeBatch(
+        address[] calldata _targets,
+        uint256[] calldata _values,
+        bytes[] calldata _calldatas
+    ) external onlyEntryPoint {
+        require(
+            _targets.length == _values.length && _targets.length == _calldatas.length,
+            "MinimalAccount: Array lengths mismatch"
+        );
+
+        for (uint256 i = 0; i < _targets.length; i++) {
+            (bool success, bytes memory data) = payable(_targets[i]).call{value: _values[i]}(_calldatas[i]);
+            require(success, MinimalAccount__CallFailed(data));
+        }
+    }
+
     // PUBLIC FUNCTIONS
 
     // INTERNAL FUNCTIONS

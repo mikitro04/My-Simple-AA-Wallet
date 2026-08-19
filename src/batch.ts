@@ -7,17 +7,16 @@ async function main() {
 	const args = process.argv.slice(2);
 
 	const ENTRY_POINT = "0x8464135c8F25Da09e49BC8782676a84730C318bC";
-	const COUNTER = "0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F";
-
-	let ACCOUNT: `0x${string}` = "0x71C95911E9a5D330f4D621842EC243EE1343292e"; // Default Minimal-Account
-	const accountIndex = args.indexOf("--account");
-	const addressIndex = args.indexOf("--address");
 	
+	// 1. Indirizzo del Mittente (Smart Account)
+	let ACCOUNT: `0x${string}` = "0x71C95911E9a5D330f4D621842EC243EE1343292e";
+	const accountIndex = args.indexOf("--account");
 	if (accountIndex !== -1 && args.length > accountIndex + 1) {
 		ACCOUNT = args[accountIndex + 1] as `0x${string}`;
-	} else if (addressIndex !== -1 && args.length > addressIndex + 1) {
-		ACCOUNT = args[addressIndex + 1] as `0x${string}`;
 	}
+
+	// 2. Indirizzo di Destinazione (Vault)
+	const TARGET = "0xbCF26943C0197d2eE0E5D05c716Be60cc2761508";
 
 	const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
 	const bundlerProvider = new ethers.JsonRpcProvider("http://localhost:3000/rpc");
@@ -25,24 +24,54 @@ async function main() {
 	const wallet = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY!, provider);
 	console.log("Wallet signer:", wallet.address);
 
-	// Build base UserOp
+	// 4. Interfaccia Ethers per il Vault
+	const vaultIface = new ethers.Interface([
+		"function deposit() payable", 
+		"function withdraw(uint256 amount)"
+	]);
+
+	// 5. Preparazione dei tre array per executeBatch (3 operazioni: Deposito, Prelievo, Deposito)
+	const targets = [TARGET, TARGET, TARGET];
+	const values = [
+		ethers.parseEther("0.5"),
+		0n, // Zero value per il prelievo
+		ethers.parseEther("0.5")
+	];
+	const calldatas = [
+		vaultIface.encodeFunctionData("deposit"),
+		vaultIface.encodeFunctionData("withdraw", [ethers.parseEther("0.5")]),
+		vaultIface.encodeFunctionData("deposit")
+	];
+
+	// 6. Interfaccia del MinimalAccount per codificare la chiamata executeBatch
+	const accountIface = new ethers.Interface([
+		"function executeBatch(address[] calldata _targets, uint256[] calldata _values, bytes[] calldata _calldatas)"
+	]);
+	
+	const batchCallData = accountIface.encodeFunctionData("executeBatch", [
+		targets,
+		values,
+		calldatas
+	]);
+
+	// 7. Costruzione della UserOperation base (per nonce e parametri standard)
 	const baseOp: any = await buildUserOp({
 		provider,
 		entryPoint: ENTRY_POINT,
 		sender: ACCOUNT,
-		target: COUNTER,
-		data: "0xd09de08a",
+		target: ACCOUNT, 
+		data: "0x", // Non ci interessa perché lo sovrascriveremo
 	});
 
 	const currentNonce = "0x" + BigInt(baseOp.nonce).toString(16);
 	console.log("Current Nonce from blockchain:", currentNonce);
 
-	// La PackedUserOperation pulita e perfetta (v0.7)
+	// 8. Logica inalterata per UserOperation (v0.7), ma INIETTIAMO il batchCallData puro!
 	const packedUserOp: any = {
 		sender: ACCOUNT,
 		nonce: currentNonce,
 		initCode: baseOp.initCode || "0x",
-		callData: baseOp.callData,
+		callData: batchCallData as `0x${string}`, // OVERRIDE DIRETTO! Evita che venga wrappato in execute()
 		accountGasLimits: "0x000000000000000000000000000186a0000000000000000000000000000493e0",
 		preVerificationGas: "0xc350",
 		gasFees: "0x00000000000000000000000077359400000000000000000000000002540be400",
@@ -51,10 +80,6 @@ async function main() {
 	};
 
 	// --- GESTIONE PAYMASTER ---
-	// Di default lo Smart Account paga per il proprio gas (Paymaster disabilitato).
-	// Se vuoi usare il Paymaster, passa il parametro '--paymaster' da riga di comando.
-	// Esempio: npm run start -- --paymaster
-
 	const USE_PAYMASTER = args.includes("--paymaster");
 
 	if (!USE_PAYMASTER) {

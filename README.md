@@ -1,4 +1,4 @@
-# 🚀 Simple-AA-Wallet - Fully Local ERC-4337 (No Testnets!)
+# 🚀 My-Simple-AA-Wallet - Fully Local ERC-4337 (No Testnets!)
 
 This repository demonstrates a **fully local, end-to-end ERC-4337 Account Abstraction flow**.
 
@@ -369,6 +369,38 @@ utils/
 | **Core Libs**       | `@account-abstraction/contracts`, `@openzeppelin/contracts`       |
 
 **Design goal:** no SDKs, no wallet frameworks, only raw ERC-4337 primitives.
+
+---
+
+## 🔐 Mock Web3 Social Login
+
+This project includes a simulated **Web3 Social Login** flow to demonstrate how a dApp might map a user's social identity (e.g., Google login) to a Smart Account. 
+
+> **⚠️ Note on Simulation:** This feature is built entirely to simulate a real-world blockchain interaction in a local environment. To keep things simple, user credentials (email and password) are stored in plaintext within a local JSON database (`database/data.json`). Do not use real passwords.
+
+### 1. How it works
+You can simulate the login by running:
+```bash
+npm run login
+```
+This script will:
+- Prompt for a mock email and password.
+- If it's a new user, it automatically deploys a new `MinimalAccount` for them using `forge create`.
+- Map the user to a local Anvil signer.
+- Automatically update your `.env` file with the new user's `OWNER_PRIVATE_KEY`.
+
+### 2. Executing a UserOperation
+After logging in, your `.env` has been updated with the new Account's Private Key. To execute a UserOperation for this newly deployed Smart Account, you must explicitly pass its address to the start command:
+```bash
+npm run start -- --account <NEW_SMART_ACCOUNT_ADDRESS>
+```
+*Don't forget to fund the new Smart Account with some ETH first using `cast send`!*
+
+### 3. Reverting back to normal (Rebase)
+Since the login script modifies your `.env` file, you might want to return to the original testing environment (using Anvil Account-1). To restore the original `.env` configuration, simply run:
+```bash
+npm run rebase
+```
 
 ---
 

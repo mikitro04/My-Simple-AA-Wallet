@@ -12,7 +12,12 @@
     "build:userop": "ts-node userop/runners/runBuildUserOp.ts",
     "sign:userop": "ts-node userop/runners/runSignUserOp.ts",
     "send:userop": "ts-node userop/runners/runSendUserOp.ts",
-    "start": "ts-node src/index.ts"
+    "start": "ts-node src/index.ts",
+	"login": "node mocks/mockLogin.js",
+    "rebase": "node mocks/rebaseEnv.js",
+    "batch": "ts-node src/batch.ts",
+    "native": "ts-node src/performanceNative.ts",
+    "aa": "ts-node src/performanceAA.ts"
   },
   "keywords": [],
   "author": "",
