@@ -31,6 +31,7 @@ async function main() {
 	]);
 
 	// 5. Preparazione dei tre array per executeBatch (3 operazioni: Deposito, Prelievo, Deposito)
+	
 	const targets = [TARGET, TARGET, TARGET];
 	const values = [
 		ethers.parseEther("0.5"),
